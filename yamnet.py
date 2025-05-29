@@ -7,7 +7,6 @@ import tensorflow_hub as hub
 import numpy as np
 import csv
 import cv2
-import scipy.signal
 from scipy.io import wavfile
 from ultralytics import YOLO
 
@@ -67,11 +66,11 @@ def run_yamnet():
     else:
         print("🔊 No relevant sound detected.")
 
-# === VIDEO THREAD: Real-Time Webcam YOLO Logic ===
-def run_yolo_webcam():
-    print("🎥 [YOLO] Running real-time object detection on webcam...")
+# === VIDEO THREAD: YOLO Video Processing ===
+def run_yolo_video():
+    print("🎥 [YOLO] Running object detection on video...")
     model_yolo = YOLO('/Users/devika/Downloads/best.pt')
-    cap = cv2.VideoCapture(video_path)  # 0 is usually the default webcam
+    cap = cv2.VideoCapture(video_path)
 
     frame_id = 0
     yolo_outputs = []
@@ -81,11 +80,15 @@ def run_yolo_webcam():
         if not success:
             break
 
+        # Process every 15th frame to reduce computation
         if frame_id % 15 == 0:
             results = model_yolo.predict(frame, save=False, iou=0.7, conf=0.25)
 
-            timestamp = time.strftime('%H:%M:%S', time.gmtime(time.time()))
-            #print(timestamp)
+            # Calculate timestamp based on frame count and FPS
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            timestamp = frame_id / fps
+            time_str = time.strftime('%H:%M:%S', time.gmtime(timestamp))
+
             for result in results:
                 for box in result.boxes:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -93,52 +96,32 @@ def run_yolo_webcam():
                     prob = round(box.conf[0].item(), 2)
                     class_name = result.names[class_id]
                     yolo_outputs.append([
-                        frame_id, timestamp, x1, y1, x2, y2, class_id, class_name, prob
+                        frame_id, time_str, x1, y1, x2, y2, class_id, class_name, prob
                     ])
-
-            annotated_frame = results[0].plot()
-            cv2.imshow("YOLO Webcam", annotated_frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
 
         frame_id += 1
 
     cap.release()
-    cv2.destroyAllWindows()
 
+    # Save detections to CSV
     df_yolo = pd.DataFrame(yolo_outputs, columns=[
         "frame", "timestamp", "x1", "y1", "x2", "y2", "class_id", "class_name", "confidence"
     ])
-    df_yolo.to_csv("output_yolo_webcam.csv", index=False)
-    print("✅ Webcam YOLO detections saved to output_yolo_webcam.csv")
+    df_yolo.to_csv("output_yolo_video.csv", index=False)
+    print("✅ YOLO detections saved to output_yolo_video.csv")
 
 # === PARALLEL EXECUTION ===
- if __name__ == "__main__":
-     # Create threads
-     yolo_thread = threading.Thread(target=run_yolo_webcam)
-     yamnet_thread = threading.Thread(target=run_yamnet)
+if __name__ == "__main__":
+    # Create threads
+    yolo_thread = threading.Thread(target=run_yolo_video)
+    yamnet_thread = threading.Thread(target=run_yamnet)
 
     # Start threads
-     yolo_thread.start()
+    yolo_thread.start()
     yamnet_thread.start()
 
-     # Wait for both to complete
-     yolo_thread.join()
-     yamnet_thread.join()
+    # Wait for both to complete
+    yolo_thread.join()
+    yamnet_thread.join()
 
-     print("✅ Both YOLO and YAMNet processing finished!")
-
-# === PARALLEL EXECUTION ===
-#if __name__ == "__main__":
-#    yamnet_thread = threading.Thread(target=run_yamnet)
-
-#    # Start only YAMNet as a background thread
-#    yamnet_thread.start()
-
-    # Run YOLO webcam detection in the main thread (for safe GUI usage)
-#    run_yolo_webcam()
-
-#    yamnet_thread.join()
-#    print("✅ Both YOLO and YAMNet processing finished!")
-
+    print("✅ Both YOLO and YAMNet processing finished!")
